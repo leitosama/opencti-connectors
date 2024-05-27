@@ -68,6 +68,11 @@ class ReportImporter:
     def _process_message(self, data: Dict) -> str:
         self.helper.log_info("Processing new message")
         self.file = None
+
+        event_type = data.get("event_type", None)
+        if event_type == 'Analysis':
+            return "Analysis not handled yet"
+
         file_name = self._download_import_file(data)
         entity_id = data.get("entity_id", None)
         bypass_validation = data.get("bypass_validation", False)
