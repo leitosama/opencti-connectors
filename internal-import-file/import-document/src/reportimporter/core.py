@@ -71,8 +71,25 @@ class ReportImporter:
 
         event_type = data.get("event_type", None)
         if event_type == 'Analysis':
-            return "Analysis not handled yet"
+            self._process_analysis(data)
+        else:
+            self._process_import(data)
 
+    def _process_analysis(self, data: Dict) -> str:
+        raw_content = data.get("contentRaw", None)
+
+        # Retrieve entity set from OpenCTI
+        entity_indicators = self._collect_stix_objects(self.entity_config)
+
+        # Parse content
+        parser = ReportParser(self.helper, entity_indicators, self.observable_config)
+
+        return "Analysis not handled yet"
+
+    def _keep_existing_observables(self, matched_elements: Dict[str, Dict]):
+
+
+    def _process_import(self, data: Dict) -> str:
         file_name = self._download_import_file(data)
         entity_id = data.get("entity_id", None)
         bypass_validation = data.get("bypass_validation", False)

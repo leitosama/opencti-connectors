@@ -78,7 +78,7 @@ class ReportParser(object):
             OBSERVABLE_CLASS, observable.stix_target, ind_match, match_range
         )
 
-    def _parse(self, data: str) -> Dict[str, Dict]:
+    def parse(self, data: str) -> Dict[str, Dict]:
         list_matches = {}
 
         # Defang text
