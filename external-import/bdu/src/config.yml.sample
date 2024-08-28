@@ -1,0 +1,16 @@
+opencti:
+  url: 'http://localhost:8080'
+  token: 'ChangeMe'
+
+connector:
+  id: 'ChangeMe'
+  type: 'EXTERNAL_IMPORT'
+  name: 'BDU FSTEC'
+  scope: 'identity,vulnerability'
+  run_and_terminate: false
+  log_level: 'info'
+
+bdu:
+  base_url: 'https://bdu.fstec.ru/files/documents/vulxml.zip' # Required
+  verify_cert: False
+  interval: 6 # Required, in hours advice min 2
