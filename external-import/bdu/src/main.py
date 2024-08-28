@@ -10,18 +10,16 @@ import ssl
 import urllib3
 import zipfile
 import stix2
-from cvss import CVSS3
 import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 
 
 from pycti import (
     STIX_EXT_OCTI,
     STIX_EXT_OCTI_SCO,
     OpenCTIConnectorHelper,
-    OpenCTIStix2,
     get_config_variable,
-    Identity, StixCoreRelationship, Vulnerability
+    Identity, Vulnerability
 )  # type: ignore
 
 
@@ -39,11 +37,6 @@ class BDUConnector:
         )
         self.helper = OpenCTIConnectorHelper(config, True)
         self.author = self._create_author()
-
-        # bdu:
-            # base_url: 'https://bdu.fstec.ru/files/documents/vulxml.zip' # Required
-            # verify_cert: False
-            # interval: 6 # Required, in hours advice min 2`
 
         self.base_url = get_config_variable(
                 "BDU_BASE_URL",
@@ -69,7 +62,6 @@ class BDUConnector:
         )
 
         self.helper = OpenCTIConnectorHelper(config, True)
-        # self.converter = BDUConnector(self.helper)
 
     def run(self) -> None:
         """
@@ -112,7 +104,7 @@ class BDUConnector:
         """
         msg = (
             f"[CONNECTOR] Connector successfully run, storing last_run as "
-            f"{datetime.utcfromtimestamp(current_time).strftime('%Y-%m-%d %H:%M:%S')}"
+            f"{datetime.fromtimestamp(current_time,tz=timezone.UTC).strftime('%Y-%m-%d %H:%M:%S')}"
         )
         self.helper.log_info(msg)
         self.helper.api.work.to_processed(work_id, msg)
@@ -296,13 +288,9 @@ class BDUConnector:
         # Open the zip file
         with zipfile.ZipFile(zip_file_content) as zip_file:
         # with zipfile.ZipFile("/tmp/vulxml.zip") as zip_file:
-        #     with zip_file.open('export/export.xml') as file:
-        #         bduxml = file.read()  # Read file content
+            with zip_file.open('export/export.xml') as file:
+                bduxml = file.read()  # Read file content
 
-
-
-        
-        
         xmlroot = ET.fromstring(bduxml)
         
         vulnerabilities_to_stix2 = []
