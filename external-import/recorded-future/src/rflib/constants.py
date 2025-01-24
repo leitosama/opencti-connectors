@@ -1,3 +1,6 @@
+import stix2
+from pycti import MarkingDefinition
+
 from .rf_to_stix2 import URL, Domain, FileHash, IntrusionSet, IPAddress, Malware
 
 RISK_LIST_TYPE_MAPPER = {
@@ -22,3 +25,18 @@ RISK_RULES_MAPPER = [
     {"rule_score": 3, "severity": "Malicious", "risk_score": "65-89"},
     {"rule_score": 4, "severity": "Very Malicious", "risk_score": "90-99"},
 ]
+
+TLP_MAP = {
+    "white": stix2.TLP_WHITE,
+    "green": stix2.TLP_GREEN,
+    "amber": stix2.TLP_AMBER,
+    "amber+strict": stix2.MarkingDefinition(
+        id=MarkingDefinition.generate_id("TLP", "TLP:AMBER+STRICT"),
+        definition_type="statement",
+        definition={"statement": "custom"},
+        allow_custom=True,
+        x_opencti_definition_type="TLP",
+        x_opencti_definition="TLP:AMBER+STRICT",
+    ),
+    "red": stix2.TLP_RED,
+}

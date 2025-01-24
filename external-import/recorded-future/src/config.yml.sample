@@ -15,7 +15,7 @@ rf:
   initial_lookback: 240 # Required, in hours
   pull_analyst_notes: True
   last_published_notes: 24 # Required, in hours
-  TLP: white
+  TLP: red
   topic: 'VTrvnW,g1KBGl,ZjnoP0,aDKkpk,TXSFt5,UrMRnT,TXSFt3' # optional / Corresponds to Yara Rule, Sigma Rule, Snort Rule, TTP Instance, Validated Intelligence Event, Informational, Threat Lead
   insikt_only: True # optional
   pull_signatures: False # Pull Yara/Snort/Sigma rules into OpenCTI. optional
@@ -31,12 +31,13 @@ rf:
   pull_threat_maps: False # optional - Pull Threat Actors and Malware maps
 
 alert:
-  enable: False
-  incident_vocabulary_name: 'incident_type_ov'
-  channels_vocabulary_name: 'channel_types_ov'
-  default_marking: 'TLP:AMBER'
-  incident_default_description : 'Analyst's comment : \n\n'
-  logo_abuse_rule_id: 'ChangeMe'
-  initial_pull_off: 1
-  download_path: 'images/'
-  logo_abuse_rule_id: 'ChangeMe'
+  enable: False # required
+  default_opencti_severity: "low" # optional
+  priority_alerts_only: False # optional - default: False
+
+playbook_alert:
+  enable: False # required
+  severity_threshold_domain_abuse: 'Informational' # optional
+  severity_threshold_identity_novel_exposures: 'Informational' # optional
+  severity_threshold_code_repo_leakage: 'Informational' # optional
+  debug: False # optional

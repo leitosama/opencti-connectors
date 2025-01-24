@@ -1,2 +1,2 @@
-pycti==6.2.18
+pycti==6.4.8
 responses
