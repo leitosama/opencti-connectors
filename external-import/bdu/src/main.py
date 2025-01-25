@@ -4,19 +4,15 @@ import time
 import sys
 import os
 import io
-import yaml
-import time
-import ssl
-import urllib3
-import zipfile
-import stix2
-import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
+import ssl
+import zipfile
+import xml.etree.ElementTree as ET
 
-
+import stix2
+import urllib3
+import yaml
 from pycti import (
-    STIX_EXT_OCTI,
-    STIX_EXT_OCTI_SCO,
     OpenCTIConnectorHelper,
     get_config_variable,
     Identity, Vulnerability
@@ -25,13 +21,16 @@ from pycti import (
 
 
 class BDUConnector:
+    """
+    BDU OpenCTI connector main class
+    """
     def __init__(self):
         """
         Initialize the BDUConnector with necessary configurations
         """
         config_file_path = os.path.dirname(os.path.abspath(__file__)) + "/config.yml"
         config = (
-            yaml.load(open(config_file_path), Loader=yaml.FullLoader)
+            yaml.load(open(config_file_path,'r', encoding='utf-8'), Loader=yaml.FullLoader)
             if os.path.isfile(config_file_path)
             else {}
         )
@@ -83,7 +82,7 @@ class BDUConnector:
         :param timestamp: Timestamp in integer
         :return: Work id in string
         """
-        now = datetime.utcfromtimestamp(timestamp)
+        now = datetime.fromtimestamp(timestamp, timezone.utc)
         friendly_name = f"{self.helper.connect_name} run @ " + now.strftime(
             "%Y-%m-%d %H:%M:%S"
         )
@@ -104,7 +103,7 @@ class BDUConnector:
         """
         msg = (
             f"[CONNECTOR] Connector successfully run, storing last_run as "
-            f"{datetime.fromtimestamp(current_time,tz=timezone.UTC).strftime('%Y-%m-%d %H:%M:%S')}"
+            f"{datetime.fromtimestamp(current_time,tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}"
         )
         self.helper.log_info(msg)
         self.helper.api.work.to_processed(work_id, msg)
@@ -137,7 +136,7 @@ class BDUConnector:
         :param work_id: work id in string
         :return:
         """
-        vulnerabilities_objects = self.vulnerabilities_to_stix2()
+        vulnerabilities_objects = self.create_stix_bundle()
 
         if len(vulnerabilities_objects) != 0:
             vulnerabilities_objects.append(self.author)
@@ -160,6 +159,14 @@ class BDUConnector:
 
     @staticmethod
     def parse_vector(vector: str) -> dict:
+        """Parse CVSS vector and get CIA impact and AV of vulnerability
+
+        Args:
+            vector (str): String CVSS vector
+
+        Returns:
+            dict: CIA impact and AV of vulnerability in dictonary format
+        """
         result = {
             "attack_vector": None,
             "integrity_impact": None,
@@ -176,7 +183,6 @@ class BDUConnector:
                 result["availability_impact"] = part.split(":")[1]
             elif part.startswith("C:"):
                 result["confidentiality_impact"] = part.split(":")[1]
-        
         return result
 
     @staticmethod
@@ -191,78 +197,90 @@ class BDUConnector:
         )
 
 
-    def parse_bdu_vul(self, vul) -> stix2.Vulnerability:
-        external_refs = list()
-        vector = None
-        # Getting different fields
-        for vul_param in vul:
-            if vul_param.tag == "identifier":
-                name = vul_param.text
-            elif vul_param.tag == "description":
-                description = vul_param.text
-            elif vul_param.tag == "identify_date":
-                created_date = datetime.strptime(vul_param.text,"%d.%m.%Y")
-            elif vul_param.tag == "identifiers":
-                external_refs = list()
-                for ident in vul_param:
-                    ref = stix2.ExternalReference(
-                        source_name=ident.attrib['type'], external_id=ident.text
-                    )
-                    external_refs.append(ref)
-            elif vul_param.tag == "severity":
-                severity = vul_param.text
-            elif vul_param.tag == "cvss3" and not vector:
-                for cvss_param in vul_param:
-                    if cvss_param.tag == "vector":
-                        vector = cvss_param.text
-                        base_score = float(cvss_param.attrib['score'])
-            elif vul_param.tag == "cvss" and not vector:
-                for cvss_param in vul_param:
-                    if cvss_param.tag == "vector":
-                        vector = cvss_param.text
-                        base_score = float(cvss_param.attrib['score'])
-        # Create external references
-        bdu_id = name.split(':')[1]
-        # self.helper.log_debug(bdu_id)
-        external_reference = stix2.ExternalReference(
-            source_name="bdu", url=f"https://bdu.fstec.ru/vul/{bdu_id}"
-        )
-        external_references = [external_reference] + external_refs
-        # self.helper.log_debug(vector)
-        vector_d = BDUConnector.parse_vector(vector)
+    def parse_bdu_vul(self, vul: ET.Element, vul_name:str) -> stix2.Vulnerability:
+        """Parse BDU vulnerabilities from XML item to STIX object
 
-        attack_vector = vector_d["attack_vector"]
-        availability_impact = vector_d["availability_impact"]
-        base_score = base_score
-        base_severity = severity
-        confidentiality_impact = vector_d["confidentiality_impact"]
-        integrity_impact = vector_d["integrity_impact"]
+        Args:
+            vul (xml.etree.ElementTree.Element): ElementTree item with vulnerability
+            vul_name (str): Name (ID) of vulnerability
 
-        # Creating the vulnerability with the extracted fields
+        Returns:
+            stix2.Vulnerability: STIX vulnerability object with parsed data
+        """
+        sev_rus_to_eng = {
+            "Критический": "Critical",
+            "Высокий": "High",
+            "Средний": "Medium",
+            "Низкий": "Low",
+            "Нет": "Unknown"
+        }
+        childs = list()
+        for child in vul:
+            childs.append(child.tag)
+
+        self.helper.log_debug(childs)
+        vul_description = vul.find('description').text
+        vul_created_str = vul.find('identify_date').text
+        if vul_created_str != "Данные уточняются":
+            vul_created = datetime.strptime(vul_created_str,"%d.%m.%Y")
+        else:
+            vul_created = None
+        vul_external_references = list()
+        vul_identifiers = vul.find('identifiers')
+        if vul_identifiers is not None and len(vul_identifiers)!=0:
+            for ident in vul_identifiers:
+                ref = stix2.ExternalReference(
+                    source_name=ident.attrib['type'], external_id=ident.text
+                )
+                vul_external_references.append(ref)
+
+        vul_severity = sev_rus_to_eng[vul.find('severity').text.split(' ')[0]]
+
+        vul_custom_properties = {
+            "x_opencti_base_score": None,
+            "x_opencti_base_severity": vul_severity,
+            "x_opencti_attack_vector": None,
+            "x_opencti_integrity_impact": None,
+            "x_opencti_availability_impact": None,
+            "x_opencti_confidentiality_impact": None,
+        }
+        vul_cvss_score = 0
+        vul_vector = None
+
+        vul_cvss3 = vul.find('cvss3')
+        vul_cvss2 = vul.find('cvss')
+
+        if vul_cvss3 is not None and float(vul_cvss3.find('vector').get('score')) != 0:
+            vul_cvss_score = float(vul_cvss3.find('vector').get('score'))
+            vul_vector = vul_cvss3.find('vector').text
+        else:
+            vul_vector = vul_cvss2.find('vector').text
+            vul_cvss_score = float(vul_cvss2.find('vector').get('score'))
+
+        vul_custom_properties['x_opencti_base_score'] = vul_cvss_score
+
+        vector_d = BDUConnector.parse_vector(vul_vector)
+
+        for k,v in vector_d.items():
+            vul_custom_properties[f'x_opencti_{k}'] = v
+
         vulnerability_to_stix2 = stix2.Vulnerability(
-            id=Vulnerability.generate_id(name),
-            name=name,
-            created=created_date,
-            description=description,
+            name=vul_name,
+            id = Vulnerability.generate_id(vul_name),
             created_by_ref=self.author,
-            confidence=(
-                100 if description is not None and len(description) > 0 else 60
-            ),
-            external_references=external_references,
-            custom_properties={
-                "x_opencti_base_score": base_score,
-                "x_opencti_base_severity": base_severity,
-                "x_opencti_attack_vector": attack_vector,
-                "x_opencti_integrity_impact": integrity_impact,
-                "x_opencti_availability_impact": availability_impact,
-                "x_opencti_confidentiality_impact": confidentiality_impact,
-            },
-        )
+            created = vul_created,
+            description = vul_description,
+            confidence = 100 if vul_description else 60,
+            lang = "ru",
+            custom_properties = vul_custom_properties,
+            external_references = vul_external_references + [stix2.ExternalReference(
+                    source_name="bdu", url=f"https://bdu.fstec.ru/vul/{vul_name.split(':')[1]}")])
+
         return vulnerability_to_stix2
 
 
 
-    def vulnerabilities_to_stix2(self) -> list:
+    def create_stix_bundle(self) -> list:
         """
         Retrieve all BDU from FSTEC to convert into STIX2 format
         :return: List of data converted into STIX2
@@ -287,33 +305,32 @@ class BDUConnector:
 
         # Open the zip file
         with zipfile.ZipFile(zip_file_content) as zip_file:
-        # with zipfile.ZipFile("/tmp/vulxml.zip") as zip_file:
             with zip_file.open('export/export.xml') as file:
                 bduxml = file.read()  # Read file content
 
         xmlroot = ET.fromstring(bduxml)
-        
-        vulnerabilities_to_stix2 = []
+        self.helper.log_debug(f"BDU vulns count: {len(xmlroot)}")
+        stix_bundle = []
         for vul in xmlroot:
-            name = None
-            for vul_param in vul:
-                if vul_param.tag == "identifier":
-                    name = vul_param.text
+            name = vul.find('identifier').text
+            self.helper.log_debug(f"Parsing {name}")
             vulnerability_to_stix2 = None
             try:
-                vulnerability_to_stix2 = self.parse_bdu_vul(vul)
+                vulnerability_to_stix2 = self.parse_bdu_vul(vul,name)
             except:
-                self.helper.log_debug(f"Can't parse {name}")
+                self.helper.log_error(f"Can't parse {name}")
                 continue
-            vulnerabilities_to_stix2.append(vulnerability_to_stix2)
-            break
-        return vulnerabilities_to_stix2
+            stix_bundle.append(vulnerability_to_stix2)
+            # TODO: it's a break for debug, Frodo
+            # break
+        return stix_bundle
 
     def process_data(self) -> None:
+        """
+        Main process of connector
+        """
         try:
-            """
-            Get the current state and check if connector already runs
-            """
+            # Get the current state and check if connector already runs
             now = datetime.now()
             current_time = int(datetime.timestamp(now))
             current_state = self.helper.get_state()
@@ -321,8 +338,8 @@ class BDUConnector:
             if current_state is not None and "last_run" in current_state:
                 last_run = current_state["last_run"]
 
-                msg = "[CONNECTOR] Connector last run: " + datetime.utcfromtimestamp(
-                    last_run
+                msg = "[CONNECTOR] Connector last run: " + datetime.fromtimestamp(
+                    last_run, timezone.utc
                 ).strftime("%Y-%m-%d %H:%M:%S")
                 self.helper.log_info(msg)
             else:
@@ -330,11 +347,7 @@ class BDUConnector:
                 msg = "[CONNECTOR] Connector has never run..."
                 self.helper.log_info(msg)
 
-            """
-            ======================================================
-            Main process if connector successfully works
-            ======================================================
-            """
+            # Main process if connector successfully works
             work_id = self._initiate_work(current_time)
             self.send_bundle(work_id)
 
@@ -353,9 +366,6 @@ class BDUConnector:
 
 
 if __name__ == "__main__":
-    """
-    Entry point of the script
-    """
     try:
         connector = BDUConnector()
         connector.run()
